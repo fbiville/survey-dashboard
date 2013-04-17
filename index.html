@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+	    <meta charset="UTF-8">
+	    <title>Survey results</title>
+	    <script type="text/javascript" src="require-jquery.js" data-main="main"></script>
+	    <script>
+	    	"use strict";
+
+	    	require(['jquery', 'underscore', 'highcharts'], function($,_, highcharts) {
+	    		var endpoint = 'http://english-turkish-survey.cloudfoundry.com/api/survey',
+		    		goodAnswers = {
+		    			'question7':'A',
+		    			'question8':'A',
+		    			'question9':'THE',
+		    			'question10':'THE',
+		    			'question11':'-',
+		    			'question12':'AN',
+		    			'question13':'THE',
+		    			'question14':'-',
+		    			'question15':'-',
+		    			'question16':'THE POOR',
+		    			'question17':'THE'
+		    		},
+		    		onlyEmptyAnswers = function(answers) {
+		    			return _.every(_.values(answers), _.isNull);
+		    		},
+		    		filterCorrectablePart = function(survey) {
+		    			return _.pick(survey, _.keys(goodAnswers)); 
+		    		};
+
+	    		$.ajaxSetup({
+			        accepts: {
+			            json:'application/json'
+			        }
+			    });
+
+	    		$.getJSON(endpoint, function(data) {
+	    			var globalResult = _.filter(
+		    			_.map(data.content, function(result, key) {
+		    				var stats = _.isNull(result.question5) ? {} : {level: result.question5}, 
+		    					correctableSurvey = filterCorrectablePart(result);
+		    				if (! onlyEmptyAnswers(correctableSurvey)) {
+								stats.data = 100 * _.reduce(_.pairs(correctableSurvey), function(previous, currentPair) {
+									var expected = goodAnswers[_.first(currentPair)],
+										actual = _.last(currentPair);
+									return previous + (expected.localeCompare(actual) === 0 ? 1 : 0);
+								}, 0) / _.keys(goodAnswers).length;
+		    				}
+		    				return stats;
+		    			}),
+		    			function(result) {
+		    				return result.level !== undefined;
+		    			}
+		    		),
+
+		    		details = _.reduce(data.content, function(previous, current) {
+		    			var answers = filterCorrectablePart(current);
+		    			console.log(answers);
+		    			return onlyEmptyAnswers(answers) ?
+		    				'' :
+		    				previous + 
+		    				'<li>' +
+				    			_.reduce(answers, function(previous, answer, key) {
+				    				return previous + (goodAnswers[key].localeCompare(answer) === 0 ? '\u2713' : '\u2718') + ' ' + answer + ', ';
+				    			}, '<strong style="display:inline-block; width:20%;">[' + current.question5 + ']</strong> ') +
+			    			'</li>';
+		    		}, ''),
+
+    				levelPopulation = _.countBy(globalResult, function(element) {
+    					return element.level;
+    				}),
+
+    				candidateCount = _.size(globalResult),
+
+    				averageSuccessRate = Math.round(100 * _.reduce(globalResult, function(previous, current) {
+    					return previous + current.data;
+    				}, 0) / candidateCount) / 100,
+
+    				groupedByLevelResults = _.groupBy(globalResult, function(element) {
+    					return element.level;
+    				}),
+
+    				levelDistribution = _.map(levelPopulation, function(level, key) {
+    					return [
+    						key, Math.round(100 * level / candidateCount)
+    					];
+    				}),
+
+    				levelResults = [];
+
+    				_.each(groupedByLevelResults, function(results, key, list) {
+    					levelResults.push(
+    						Math.round(100 * _.reduce(results, function(previous, current) {
+	    						return previous + (current.data) / levelPopulation[key];
+	    					}, 0)) / 100
+    					);
+    				});
+
+    				$("#count").html(candidateCount);
+    				$("#avg").html(averageSuccessRate+'%');
+
+    				$("#details").html(details);
+
+    				$('#levelPresence').highcharts({
+			            chart: {
+			                plotBackgroundColor: null,
+			                plotBorderWidth: null,
+			                plotShadow: false
+			            },
+			            title: {
+			                text: 'English level distribution (approx.)'
+			            },
+			            tooltip: {
+			        	    pointFormat: '{series.name}: <b>{point.percentage}%</b>',
+			            	percentageDecimals: 1
+			            },
+			            plotOptions: {
+			                pie: {
+			                    allowPointSelect: true,
+			                    cursor: 'pointer',
+			                    dataLabels: {
+			                        enabled: true,
+			                        color: '#000000',
+			                        connectorColor: '#000000',
+			                        formatter: function() {
+			                            return '<b>'+ this.point.name +'</b>: '+ Math.round(this.percentage) +' %';
+			                        }
+			                    }
+			                }
+			            },
+			            series: [{
+			                type: 'pie',
+			                name: 'Level distribution',
+			                data: levelDistribution
+			            }]
+			        });
+
+		    		$('#groupByLevel').highcharts({
+				        chart: {
+				            type: 'bar'
+				        },
+				        title: {
+				            text: 'Success rate (%) grouped by English level'
+				        },
+				        xAxis: {
+				            categories: _.keys(groupedByLevelResults)
+				        },
+				        yAxis: {
+				            title: {
+				                text: 'Success rate'
+				            }
+				        },
+				        series: [{
+				        	name: "qu.7 - qu.17",
+				        	data: levelResults
+				        }]
+				    });
+
+
+	    		});
+	    	});
+	    </script>
+	</head>
+	<body>
+		<h1>Survey results</h1>
+
+		<h2>Global stats</h2>
+		<ul>
+			<li>valid submissions: <span id="count">&nbsp;</span></li>
+			<li>average success rate: <span id="avg">&nbsp;</span></li>
+		</ul>
+
+		<h2>Charts</h2>
+		<div id="charts" style="overflow:auto;">
+			<div style="float:left; width: 50%;">
+				<div id="levelPresence" style="height:20em; border:2px solid black;">
+				</div>
+			</div>
+			<div style="float:left; width: 49%;">
+				<div id="groupByLevel" style="height:20em; border:2px solid black;">
+				</div>
+			</div>
+		</div>
+
+		<h2>Detailed answers</h2>
+		<ul id="details">
+		</ul>
+	</body>
+</html>
