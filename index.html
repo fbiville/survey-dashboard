@@ -7,7 +7,7 @@
 	    <script>
 	    	"use strict";
 
-	    	require(['jquery', 'underscore', 'highcharts'], function($,_, highcharts) {
+	    	require(['jquery', 'underscore', 'highcharts', 'moment'], function($,_, highcharts, moment) {
 	    		var endpoint = 'http://english-turkish-survey.cloudfoundry.com/api/survey',
 		    		goodAnswers = {
 		    			'question7':'A',
@@ -27,6 +27,9 @@
 		    		},
 		    		filterCorrectablePart = function(survey) {
 		    			return _.pick(survey, _.keys(goodAnswers)); 
+		    		},
+		    		questionRank = function(keyName) {
+		    			return parseInt(keyName.replace("question", "").replace("_", "."),10);
 		    		};
 
 	    		$.ajaxSetup({
@@ -36,7 +39,11 @@
 			    });
 
 	    		$.getJSON(endpoint, function(data) {
-	    			var globalResult = _.filter(
+
+	    			var sortedQuestionKeys = _.sortBy(_.filter(_.keys(_.head(data.content)), function(element) {
+		    				return element.indexOf("question") === 0
+		    			}), questionRank),
+	    				globalResult = _.filter(
 		    			_.map(data.content, function(result, key) {
 		    				var stats = _.isNull(result.question5) ? {} : {level: result.question5}, 
 		    					correctableSurvey = filterCorrectablePart(result);
@@ -55,16 +62,19 @@
 		    		),
 
 		    		details = _.reduce(data.content, function(previous, current) {
-		    			var answers = filterCorrectablePart(current);
-		    			console.log(answers);
-		    			return onlyEmptyAnswers(answers) ?
-		    				'' :
-		    				previous + 
-		    				'<li>' +
-				    			_.reduce(answers, function(previous, answer, key) {
-				    				return previous + (goodAnswers[key].localeCompare(answer) === 0 ? '\u2713' : '\u2718') + ' ' + answer + ', ';
-				    			}, '<strong style="display:inline-block; width:20%;">[' + current.question5 + ']</strong> ') +
-			    			'</li>';
+		    			var answers = filterCorrectablePart(current),
+		    				items = _.reduce(sortedQuestionKeys, function(previous, key) {
+				    				var rank = questionRank(key),
+				    					answer = (rank == 6) ? moment(new Date(current[key])).format('MMM YYYY') : current[key],
+				    					isValid = (_.has(goodAnswers, key) && goodAnswers[key].localeCompare(answer) === 0 ? 
+				    						'\u2713' : 
+				    						_.has(goodAnswers, key) ? '\u2718' : ''
+				    					);
+
+				    					return previous + '<li>' + isValid + ' ' + answer + '</li>';
+				    			}, '<li><strong style="display:inline-block; width:20%;">[' + current.question5 + ']</strong><ul>') + '</ul></li>';
+
+		    			return onlyEmptyAnswers(answers) ? previous : previous +  items;
 		    		}, ''),
 
     				levelPopulation = _.countBy(globalResult, function(element) {
